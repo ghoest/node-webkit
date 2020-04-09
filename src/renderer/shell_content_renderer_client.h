@@ -30,6 +30,16 @@ namespace nwapi {
 class WindowBindings;
 }
 
+namespace extensions {
+
+class Dispatcher;
+class DispatcherDelegate;
+class ExtensionsClient;
+class ShellExtensionsRendererClient;
+class ShellRendererMainDelegate;
+
+}
+
 namespace autofill {
 class PageClickTracker;
 }
@@ -40,31 +50,58 @@ class ShellRenderProcessObserver;
 class ShellContentRendererClient : public ContentRendererClient {
  public:
   ShellContentRendererClient();
-  virtual ~ShellContentRendererClient();
-  virtual void RenderThreadStarted() OVERRIDE;
-  virtual void RenderViewCreated(RenderView* render_view) OVERRIDE;
+  ~ShellContentRendererClient() final;
+   void RenderThreadStarted() override;
+   void RenderViewCreated(RenderView* render_view) override;
 
-  virtual void DidCreateScriptContext(WebKit::WebFrame* frame,
+   void DidCreateScriptContext(blink::WebFrame* frame,
                                       v8::Handle<v8::Context> context,
                                       int extension_group,
-                                      int world_id) OVERRIDE;
-  virtual bool WillSetSecurityToken(WebKit::WebFrame* frame,
-                                    v8::Handle<v8::Context>) OVERRIDE;
+                                      int world_id) override;
+   bool WillSetSecurityToken(blink::WebFrame* frame,
+                                    v8::Handle<v8::Context>) override;
 
-  virtual void willHandleNavigationPolicy(RenderView* rv,
-                                          WebKit::WebFrame* frame,
-                                          const WebKit::WebURLRequest& request,
-                                          WebKit::WebNavigationPolicy* policy) OVERRIDE;
+   void willHandleNavigationPolicy(RenderView* rv,
+                                          blink::WebFrame* frame,
+                                          const blink::WebURLRequest& request,
+                                          blink::WebNavigationPolicy* policy,
+                                          blink::WebString* manifest = NULL) override;
+
+   void windowOpenBegin(const blink::WebURL& url) override;
+   void windowOpenEnd() override;
+   void RenderFrameCreated(content::RenderFrame* render_frame) override;
+  content::BrowserPluginDelegate* CreateBrowserPluginDelegate(
+      content::RenderFrame* render_frame,
+      const std::string& mime_type,
+      const GURL& original_url) override;
+  bool ShouldForwardToGuestContainer(const IPC::Message& msg) override;
+
+ protected:
+  // app_shell embedders may need custom extensions client interfaces.
+  // This class takes ownership of the returned object.
+   extensions::ExtensionsClient* CreateExtensionsClient();
 
  private:
+  scoped_ptr<extensions::ExtensionsClient> extensions_client_;
+  scoped_ptr<extensions::ShellExtensionsRendererClient> extensions_renderer_client_;
+  scoped_ptr<extensions::DispatcherDelegate> extension_dispatcher_delegate_;
+  scoped_ptr<extensions::Dispatcher> extension_dispatcher_;
+
   scoped_ptr<ShellRenderProcessObserver> shell_observer_;
   scoped_ptr<nwapi::WindowBindings> window_bindings_;
 
-  void InstallNodeSymbols(WebKit::WebFrame* frame,
+  bool in_nav_cb_;
+  std::string in_nav_url_;
+
+  bool creating_first_context_;
+
+  void InstallNodeSymbols(blink::WebFrame* frame,
                           v8::Handle<v8::Context> context, const GURL& url);
-  void UninstallNodeSymbols(WebKit::WebFrame* frame,
+  void UninstallNodeSymbols(blink::WebFrame* frame,
                             v8::Handle<v8::Context> context);
-  bool goodForNode(WebKit::WebFrame* frame);
+  bool goodForNode(blink::WebFrame* frame);
+
+  void SetupNodeUtil(blink::WebFrame* frame, v8::Handle<v8::Context> context);
 
   // Catch node uncaughtException.
   static void ReportException(const v8::FunctionCallbackInfo<v8::Value>&  args);

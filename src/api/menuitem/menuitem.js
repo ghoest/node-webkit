@@ -22,7 +22,7 @@ var v8_util = process.binding('v8_util');
 
 function MenuItem(option) {
   if (typeof option != 'object')
-    throw new String('Invalid option.');
+    throw new TypeError('Invalid option.');
 
   if (!option.hasOwnProperty('type'))
     option.type = 'normal';
@@ -30,14 +30,14 @@ function MenuItem(option) {
   if (option.type != 'normal' &&
       option.type != 'checkbox' &&
       option.type != 'separator')
-    throw new String('Invalid MenuItem type: ' + option.type);
+    throw new TypeError('Invalid MenuItem type: ' + option.type);
 
   if (option.type == 'normal' || option.type == 'checkbox') {
     if (option.type == 'checkbox')
       option.checked = Boolean(option.checked);
 
     if (!option.hasOwnProperty('label'))
-      throw new String('A normal MenuItem must have a label');
+      throw new TypeError('A normal MenuItem must have a label');
     else
       option.label = String(option.label);
 
@@ -45,6 +45,11 @@ function MenuItem(option) {
       option.shadowIcon = String(option.icon);
       option.icon = nw.getAbsolutePath(option.icon);
     }
+
+    if (option.hasOwnProperty('iconIsTemplate'))
+      option.iconIsTemplate = Boolean(option.iconIsTemplate);
+    else
+      option.iconIsTemplate = true;
 
     if (option.hasOwnProperty('tooltip'))
       option.tooltip = String(option.tooltip);
@@ -54,7 +59,7 @@ function MenuItem(option) {
 
     if (option.hasOwnProperty('submenu')) {
       if (v8_util.getConstructorName(option.submenu) != 'Menu')
-        throw new String("'submenu' must be a valid Menu");
+        throw new TypeError("'submenu' must be a valid Menu");
 
       // Transfer only object id
       v8_util.setHiddenValue(this, 'submenu', option.submenu);
@@ -63,7 +68,7 @@ function MenuItem(option) {
 
     if (option.hasOwnProperty('click')) {
       if (typeof option.click != 'function')
-        throw new String("'click' must be a valid Function");
+        throw new TypeError("'click' must be a valid Function");
       else
         this.click = option.click;
     }
@@ -83,6 +88,10 @@ function MenuItem(option) {
     option.tooltip = '';
   if (!option.hasOwnProperty('enabled'))
     option.enabled = true;
+  if (!option.hasOwnProperty('key'))
+    option.key = "";
+  if (!option.hasOwnProperty('modifiers'))
+    option.modifiers = "";
 }
 require('util').inherits(MenuItem, exports.Base);
 
@@ -91,7 +100,7 @@ MenuItem.prototype.__defineGetter__('type', function() {
 });
 
 MenuItem.prototype.__defineSetter__('type', function() {
-  throw new String("'type' is immutable at runtime");
+  throw new Error("'type' is immutable at runtime");
 });
 
 MenuItem.prototype.__defineGetter__('label', function() {
@@ -112,6 +121,14 @@ MenuItem.prototype.__defineSetter__('icon', function(val) {
   this.handleSetter('icon', 'SetIcon', String, real_path);
 });
 
+MenuItem.prototype.__defineGetter__('iconIsTemplate', function() {
+  return this.handleGetter('iconIsTemplate');
+});
+
+MenuItem.prototype.__defineSetter__('iconIsTemplate', function(val) {
+  this.handleSetter('iconIsTemplate', 'SetIconIsTemplate', Boolean, val);
+});
+
 MenuItem.prototype.__defineGetter__('tooltip', function() {
   return this.handleGetter('tooltip');
 });
@@ -120,17 +137,33 @@ MenuItem.prototype.__defineSetter__('tooltip', function(val) {
   this.handleSetter('tooltip', 'SetTooltip', String, val);
 });
 
+MenuItem.prototype.__defineGetter__('key', function() {
+  return this.handleGetter('key');
+});
+
+MenuItem.prototype.__defineSetter__('key', function(val) {
+  this.handleSetter('key', 'SetKey', String, val);
+});
+
+MenuItem.prototype.__defineGetter__('modifiers', function() {
+  return this.handleGetter('modifiers');
+});
+
+MenuItem.prototype.__defineSetter__('modifiers', function(val) {
+  this.handleSetter('modifiers', 'SetModifiers', String, val);
+});
+
 MenuItem.prototype.__defineGetter__('checked', function() {
   if (this.type != 'checkbox')
     return undefined;
-    
+
   return this.handleGetter('checked');
 });
 
 MenuItem.prototype.__defineSetter__('checked', function(val) {
   if (this.type != 'checkbox')
-    throw new String("'checked' property is only available for checkbox");
-    
+    throw new TypeError("'checked' property is only available for checkbox");
+
   this.handleSetter('checked', 'SetChecked', Boolean, val);
 });
 
@@ -148,7 +181,7 @@ MenuItem.prototype.__defineGetter__('submenu', function() {
 
 MenuItem.prototype.__defineSetter__('submenu', function(val) {
   if (v8_util.getConstructorName(val) != 'Menu')
-    throw new String("'submenu' property requries a valid Menu");
+    throw new TypeError("'submenu' property requries a valid Menu");
 
   v8_util.setHiddenValue(this, 'submenu', val);
   nw.callObjectMethod(this, 'SetSubmenu', [ val.id ]);

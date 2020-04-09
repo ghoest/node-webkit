@@ -50,6 +50,10 @@ void MenuItem::Call(const std::string& method,
     std::string icon;
     arguments.GetString(0, &icon);
     SetIcon(icon);
+  } else if (method == "SetIconIsTemplate") {
+    bool isTemplate;
+    arguments.GetBoolean(0, &isTemplate);
+    SetIconIsTemplate(isTemplate);
   } else if (method == "SetTooltip") {
     std::string tooltip;
     arguments.GetString(0, &tooltip);
@@ -66,6 +70,16 @@ void MenuItem::Call(const std::string& method,
     int object_id = 0;
     arguments.GetInteger(0, &object_id);
     SetSubmenu(dispatcher_host()->GetApiObject<Menu>(object_id));
+#if defined(OS_MACOSX)
+  } else if (method == "SetKey") {
+    std::string key;
+    arguments.GetString(0, &key);
+    SetKey(key);
+  } else if (method == "SetModifiers") {
+    std::string mod;
+    arguments.GetString(0, &mod);
+    SetModifiers(mod);
+#endif
   } else {
     NOTREACHED() << "Invalid call to MenuItem method:" << method
                  << " arguments:" << arguments;

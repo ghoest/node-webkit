@@ -29,13 +29,15 @@
 #if defined(OS_MACOSX)
 #if __OBJC__
 @class NSStatusItem;
+@class MacTrayObserver;
 #else
 class NSStatusItem;
+class MacTrayObserver;
 #endif  // __OBJC__
-#elif defined(TOOLKIT_GTK)
+#elif 0
 #include <gtk/gtk.h>
-#include "ui/base/gtk/gtk_signal.h"
-#elif defined(OS_WIN)
+#include "chrome/browser/ui/libgtk2ui/gtk2_signal.h"
+#elif defined(OS_WIN) || defined(OS_LINUX)
 class StatusIcon;
 class StatusTray;
 #endif  // defined(OS_MACOSX)
@@ -50,10 +52,10 @@ class Tray : public Base {
   Tray(int id,
        const base::WeakPtr<DispatcherHost>& dispatcher_host,
        const base::DictionaryValue& option);
-  virtual ~Tray();
+  ~Tray() override;
 
-  virtual void Call(const std::string& method,
-                    const base::ListValue& arguments) OVERRIDE;
+  void Call(const std::string& method,
+                    const base::ListValue& arguments) override;
 
  private:
   // Platform-independent implementations
@@ -62,15 +64,19 @@ class Tray : public Base {
   void Destroy();
   void SetTitle(const std::string& title);
   void SetIcon(const std::string& icon_path);
-  void SetTooltip(const std::string& title);
+  void SetTooltip(const std::string& tooltip);
   void SetMenu(Menu* menu);
   void Remove();
   // Alternate icons only work with Macs
   void SetAltIcon(const std::string& alticon_path);
+  // Template icons only work with Macs 
+  void SetIconsAreTemplates(bool areTemplates);
 
 #if defined(OS_MACOSX)
   __block NSStatusItem* status_item_;
-#elif defined(TOOLKIT_GTK)
+  MacTrayObserver* status_observer_;
+  bool iconsAreTemplates; 
+#elif 0
   GtkStatusIcon* status_item_;
 
   // Reference to the associated menu.
@@ -80,7 +86,7 @@ class Tray : public Base {
   CHROMEGTK_CALLBACK_0(Tray, void, OnClick);
   // Callback invoked when user right-clicks on the status icon.
   CHROMEGTK_CALLBACK_2(Tray, void, OnPopupMenu, guint, guint);
-#elif defined(OS_WIN)
+#elif defined(OS_WIN) || defined(OS_LINUX)
   // The global presentation of system tray.
   static StatusTray* status_tray_;
 

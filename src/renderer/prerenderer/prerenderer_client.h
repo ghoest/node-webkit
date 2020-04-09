@@ -28,15 +28,15 @@
 namespace prerender {
 
 class PrerendererClient : public content::RenderViewObserver,
-                          public WebKit::WebPrerendererClient {
+                          public blink::WebPrerendererClient {
  public:
   explicit PrerendererClient(content::RenderView* render_view);
 
  private:
-  virtual ~PrerendererClient();
+   ~PrerendererClient() final;
 
-  // Implements WebKit::WebPrerendererClient
-  virtual void willAddPrerender(WebKit::WebPrerender* prerender) OVERRIDE;
+  // Implements blink::WebPrerendererClient
+  virtual void willAddPrerender(blink::WebPrerender* prerender) override;
 };
 
 }  // namespace prerender

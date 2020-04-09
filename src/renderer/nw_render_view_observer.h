@@ -23,13 +23,15 @@
 
 #include "content/public/renderer/render_view_observer.h"
 
+#include <string>
+
 class SkBitmap;
 
 namespace content {
 class RenderViewImpl;
 }
 
-namespace WebKit {
+namespace blink {
 class WebView;
 }
 
@@ -38,12 +40,12 @@ namespace nw {
 class NwRenderViewObserver : public content::RenderViewObserver {
  public:
   NwRenderViewObserver(content::RenderView* render_view);
-  virtual ~NwRenderViewObserver();
+  ~NwRenderViewObserver() final;
 
   // RenderViewObserver implementation.
-  virtual bool OnMessageReceived(const IPC::Message& message) OVERRIDE;
-  virtual void DidCreateDocumentElement(WebKit::WebFrame* frame) OVERRIDE;
-  virtual void DidFinishDocumentLoad(WebKit::WebFrame* frame) OVERRIDE;
+   bool OnMessageReceived(const IPC::Message& message) override;
+   void DidCreateDocumentElement(blink::WebLocalFrame* frame) override;
+   void DidFinishDocumentLoad(blink::WebLocalFrame* frame) override;
 
  private:
 
@@ -51,11 +53,11 @@ class NwRenderViewObserver : public content::RenderViewObserver {
 
   // Capture a snapshot of a view.  This is used to allow an extension
   // to get a snapshot of a tab using chrome.tabs.captureVisibleTab().
-  bool CaptureSnapshot(WebKit::WebView* view, SkBitmap* snapshot);
+  bool CaptureSnapshot(blink::WebView* view, SkBitmap* snapshot);
 
   void OnDocumentCallback(content::RenderViewImpl* rv,
                           const std::string& js_fn,
-                          WebKit::WebFrame* frame);
+                          blink::WebFrame* frame);
 
   DISALLOW_COPY_AND_ASSIGN(NwRenderViewObserver);
 };

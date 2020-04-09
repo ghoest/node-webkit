@@ -11,10 +11,14 @@
 #include "base/compiler_specific.h"
 #include "base/memory/scoped_ptr.h"
 #include "content/public/browser/content_browser_client.h"
-#include "content/public/browser/web_contents_view.h"
+#include "third_party/WebKit/public/platform/WebNotificationPermission.h"
 
 namespace printing {
 class PrintJobManager;
+}
+
+namespace extensions {
+class Extension;
 }
 
 namespace content {
@@ -27,32 +31,40 @@ class RenderProcessHost;
 class ShellContentBrowserClient : public ContentBrowserClient {
  public:
   ShellContentBrowserClient();
-  virtual ~ShellContentBrowserClient();
+  ~ShellContentBrowserClient() final;
 
   // ContentBrowserClient overrides.
-  virtual BrowserMainParts* CreateBrowserMainParts(
-      const MainFunctionParams& parameters) OVERRIDE;
-  virtual WebContentsViewPort* OverrideCreateWebContentsView(
+   BrowserMainParts* CreateBrowserMainParts(
+      const MainFunctionParams& parameters) override;
+   void OverrideCreateWebContentsView(
       WebContents* web_contents,
       RenderViewHostDelegateView** render_view_host_delegate_view,
-      const WebContents::CreateParams& params) OVERRIDE;
-  virtual std::string GetApplicationLocale() OVERRIDE;
-  virtual void AppendExtraCommandLineSwitches(CommandLine* command_line,
-                                              int child_process_id) OVERRIDE;
-  virtual void ResourceDispatcherHostCreated() OVERRIDE;
-  virtual AccessTokenStore* CreateAccessTokenStore() OVERRIDE;
-  virtual void OverrideWebkitPrefs(
+      const WebContents::CreateParams& params) override;
+   std::string GetApplicationLocale() override;
+   void AppendExtraCommandLineSwitches(base::CommandLine* command_line,
+                                              int child_process_id) override;
+   void ResourceDispatcherHostCreated() override;
+   AccessTokenStore* CreateAccessTokenStore() override;
+   void OverrideWebkitPrefs(
       RenderViewHost* render_view_host,
       const GURL& url,
-      WebPreferences* prefs) OVERRIDE;
-  virtual std::string GetDefaultDownloadName() OVERRIDE;
-  virtual MediaObserver* GetMediaObserver() OVERRIDE;
-  virtual void BrowserURLHandlerCreated(BrowserURLHandler* handler) OVERRIDE;
-  virtual bool IsHandledURL(const GURL& url) OVERRIDE;
-  virtual bool ShouldTryToUseExistingProcessHost(
-      BrowserContext* browser_context, const GURL& url) OVERRIDE;
-  virtual bool IsSuitableHost(RenderProcessHost* process_host,
-                              const GURL& site_url) OVERRIDE;
+      WebPreferences* prefs) override;
+   std::string GetDefaultDownloadName() override;
+#if 0
+   MediaObserver* GetMediaObserver() override;
+#endif
+   bool CheckMediaAccessPermission(BrowserContext* browser_context,
+                                        const GURL& security_origin,
+                                        MediaStreamType type) override;
+
+   void BrowserURLHandlerCreated(BrowserURLHandler* handler) override;
+   bool IsHandledURL(const GURL& url) override;
+  void SiteInstanceGotProcess(content::SiteInstance* site_instance) override;
+  void SiteInstanceDeleting(content::SiteInstance* site_instance) override;
+   bool ShouldTryToUseExistingProcessHost(
+      BrowserContext* browser_context, const GURL& url) override;
+   bool IsSuitableHost(RenderProcessHost* process_host,
+                              const GURL& site_url) override;
   ShellBrowserContext* browser_context();
   ShellBrowserContext* off_the_record_browser_context();
   ShellResourceDispatcherHostDelegate* resource_dispatcher_host_delegate() {
@@ -61,41 +73,55 @@ class ShellContentBrowserClient : public ContentBrowserClient {
   ShellBrowserMainParts* shell_browser_main_parts() {
     return shell_browser_main_parts_;
   }
-  virtual printing::PrintJobManager* print_job_manager();
-  virtual void RenderProcessHostCreated(RenderProcessHost* host) OVERRIDE;
-  virtual net::URLRequestContextGetter* CreateRequestContext(
+   printing::PrintJobManager* print_job_manager();
+   void RenderProcessWillLaunch(RenderProcessHost* host) override;
+   net::URLRequestContextGetter* CreateRequestContext(
       BrowserContext* browser_context,
-      ProtocolHandlerMap* protocol_handlers) OVERRIDE;
-  virtual net::URLRequestContextGetter* CreateRequestContextForStoragePartition(
+      ProtocolHandlerMap* protocol_handlers, URLRequestInterceptorScopedVector request_interceptors) override;
+   net::URLRequestContextGetter* CreateRequestContextForStoragePartition(
       BrowserContext* browser_context,
       const base::FilePath& partition_path,
       bool in_memory,
-      ProtocolHandlerMap* protocol_handlers) OVERRIDE;
-  virtual void AllowCertificateError(
-    int render_process_id,
-    int render_view_id,
-    int cert_error,
-    const net::SSLInfo& ssl_info,
-    const GURL& request_url,
-    ResourceType::Type resource_type,
-    bool overridable,
-    bool strict_enforcement,
-    const base::Callback<void(bool)>& callback,
-    content::CertificateRequestResultType* result) OVERRIDE;
-  virtual void GetAdditionalAllowedSchemesForFileSystem(
-      std::vector<std::string>* additional_schemes) OVERRIDE;
+      ProtocolHandlerMap* protocol_handlers,
+      URLRequestInterceptorScopedVector request_interceptors) override;
+   void AllowCertificateError(int render_process_id,
+                                     int render_frame_id,
+                                     int cert_error,
+                                     const net::SSLInfo& ssl_info,
+                                     const GURL& request_url,
+                                     ResourceType resource_type,
+                                     bool overridable,
+                                     bool strict_enforcement,
+                                     bool expired_previous_decision,
+                                     const base::Callback<void(bool)>& callback,
+                                     CertificateRequestResultType* result) override;
+   void GetAdditionalAllowedSchemesForFileSystem(
+      std::vector<std::string>* additional_schemes) override;
 #if defined(OS_POSIX) && !defined(OS_MACOSX)
-  virtual void GetAdditionalMappedFilesForChildProcess(
-      const CommandLine& command_line,
+  void GetAdditionalMappedFilesForChildProcess(
+      const base::CommandLine& command_line,
       int child_process_id,
-      std::vector<content::FileDescriptorInfo>* mappings) OVERRIDE;
+      FileDescriptorInfo* mappings) override;
 #endif
-  virtual QuotaPermissionContext* CreateQuotaPermissionContext() OVERRIDE;
+   QuotaPermissionContext* CreateQuotaPermissionContext() override;
+
+  DevToolsManagerDelegate* GetDevToolsManagerDelegate() override;
+   bool ShouldUseProcessPerSite(
+    content::BrowserContext* browser_context,
+    const GURL& effective_url) override;
+
+  PlatformNotificationService* GetPlatformNotificationService() override;
+
+  content::SpeechRecognitionManagerDelegate*
+  CreateSpeechRecognitionManagerDelegate() override;
+  void DidCreatePpapiPlugin(content::BrowserPpapiHost* browser_host) override;
 
  private:
   ShellBrowserContext* ShellBrowserContextForBrowserContext(
       BrowserContext* content_browser_context);
   bool GetUserAgentManifest(std::string* agent);
+  // Returns the extension or app associated with |site_instance| or NULL.
+  const extensions::Extension* GetExtension(content::SiteInstance* site_instance);
   scoped_ptr<ShellResourceDispatcherHostDelegate>
       resource_dispatcher_host_delegate_;
 

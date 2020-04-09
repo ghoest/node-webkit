@@ -23,13 +23,14 @@
 #include <vector>
 
 #include "base/command_line.h"
-#include "base/file_util.h"
+#include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/json/json_file_value_serializer.h"
 #include "base/json/json_string_value_serializer.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_tokenizer.h"
 #include "base/strings/string_util.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/values.h"
 #include "third_party/zlib/google/zip.h"
@@ -45,9 +46,11 @@
 #include "ui/gfx/image/image_skia_rep.h"
 #include "ui/gfx/codec/png_codec.h"
 
+namespace base {
 bool IsSwitch(const CommandLine::StringType& string,
               CommandLine::StringType* switch_string,
               CommandLine::StringType* switch_value);
+}
 
 namespace nw {
 
@@ -64,7 +67,7 @@ bool MakePathAbsolute(FilePath* file_path) {
   DCHECK(file_path);
 
   FilePath current_directory;
-  if (!file_util::GetCurrentDirectory(&current_directory))
+  if (!base::GetCurrentDirectory(&current_directory))
     return false;
 
   if (file_path->IsAbsolute())
@@ -83,7 +86,7 @@ bool MakePathAbsolute(FilePath* file_path) {
 }
 
 FilePath GetSelfPath() {
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
 
   FilePath path;
 
@@ -117,10 +120,12 @@ void RelativePathToURI(FilePath root, base::DictionaryValue* manifest) {
                       std::string("file://") + main_path.AsUTF8Unsafe());
 }
 
+#if defined(OS_WIN)
 std::wstring ASCIIToWide(const std::string& ascii) {
-  DCHECK(IsStringASCII(ascii)) << ascii;
+  DCHECK(base::IsStringASCII(ascii)) << ascii;
   return std::wstring(ascii.begin(), ascii.end());
 }
+#endif
 
 }  // namespace
 
@@ -146,8 +151,8 @@ Package::Package()
     return;
 
   // Then see if we have arguments and extract it.
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
-  const CommandLine::StringVector& args = command_line->GetArgs();
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  const base::CommandLine::StringVector& args = command_line->GetArgs();
   if (args.size() > 0) {
     self_extract_ = false;
     path_ = FilePath(args[0]);
@@ -199,14 +204,14 @@ bool Package::GetImage(const FilePath& icon_path, gfx::Image* image) {
   if (decoded->empty())
     return false;  // Unable to decode.
 
-  *image = gfx::Image::CreateFrom1xBitmap(*decoded.release());
+  *image = gfx::Image::CreateFrom1xBitmap(*decoded);
   return true;
 }
 
 GURL Package::GetStartupURL() {
   std::string url;
   // Specify URL in --url
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   if (command_line->HasSwitch(switches::kUrl)) {
     url = command_line->GetSwitchValueASCII(switches::kUrl);
     GURL gurl(url);
@@ -240,6 +245,12 @@ bool Package::GetUseNode() {
   return use_node;
 }
 
+bool Package::GetUseExtension() {
+  bool use_ext = true;
+  root()->GetBoolean(switches::kChromeExtension, &use_ext);
+  return use_ext;
+}
+
 base::DictionaryValue* Package::window() {
   base::DictionaryValue* window;
   root()->GetDictionaryWithoutPathExpansion(switches::kmWindow, &window);
@@ -266,7 +277,7 @@ bool Package::InitFromPath() {
   // Parse file.
   std::string error;
   JSONFileValueSerializer serializer(manifest_path);
-  scoped_ptr<Value> root(serializer.Deserialize(NULL, &error));
+  scoped_ptr<base::Value> root(serializer.Deserialize(NULL, &error));
   if (!root.get()) {
     ReportError("Unable to parse package.json",
                 error.empty() ?
@@ -274,14 +285,14 @@ bool Package::InitFromPath() {
                         manifest_path.AsUTF8Unsafe() :
                     error);
     return false;
-  } else if (!root->IsType(Value::TYPE_DICTIONARY)) {
+  } else if (!root->IsType(base::Value::TYPE_DICTIONARY)) {
     ReportError("Invalid package.json",
                 "package.json's content should be a object type.");
     return false;
   }
 
   // Save result in global
-  root_.reset(static_cast<DictionaryValue*>(root.release()));
+  root_.reset(static_cast<base::DictionaryValue*>(root.release()));
 
   // Save origin package info
   // Since we will change some value in root_,
@@ -292,7 +303,6 @@ bool Package::InitFromPath() {
 
   // Check fields
   const char* required_fields[] = {
-    switches::kmMain,
     switches::kmName
   };
   for (unsigned i = 0; i < arraysize(required_fields); i++)
@@ -314,7 +324,7 @@ bool Package::InitFromPath() {
   if (root_->GetString(switches::kAudioBufferSize, &bufsz_str)) {
     int buffer_size = 0;
     if (base::StringToInt(bufsz_str, &buffer_size) && buffer_size > 0) {
-      CommandLine* command_line = CommandLine::ForCurrentProcess();
+      base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
       command_line->AppendSwitchASCII(switches::kAudioBufferSize, bufsz_str);
     }
   }
@@ -337,7 +347,7 @@ void Package::InitWithDefault() {
   root()->Set(switches::kmWindow, window);
 
   // Hide toolbar if specifed in the command line.
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kNoToolbar))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kNoToolbar))
     window->SetBoolean(switches::kmToolbar, false);
 
   // Window should show in center by default.
@@ -355,7 +365,7 @@ bool Package::ExtractPath() {
   // Read symbolic link.
 #if defined(OS_POSIX)
   FilePath target;
-  if (file_util::ReadSymbolicLink(path_, &target))
+  if (base::ReadSymbolicLink(path_, &target))
     path_ = target;
 #endif
 
@@ -378,9 +388,9 @@ bool Package::ExtractPackage(const FilePath& zip_file, FilePath* where) {
 
   if (!scoped_temp_dir_.IsValid()) {
 #if defined(OS_WIN)
-    if (!file_util::CreateNewTempDirectory(L"nw", where)) {
+    if (!base::CreateNewTempDirectory(L"nw", where)) {
 #else
-    if (!file_util::CreateNewTempDirectory("nw", where)) {
+    if (!base::CreateNewTempDirectory("nw", where)) {
 #endif
       ReportError("Cannot extract package",
                   "Unable to create temporary directory.");
@@ -411,24 +421,24 @@ void Package::ReadChromiumArgs() {
   tokenizer.set_quote_chars("\'");
   while (tokenizer.GetNext()) {
     std::string token = tokenizer.token();
-    RemoveChars(token, "\'", &token);
+    base::RemoveChars(token, "\'", &token);
     chromium_args.push_back(token);
   }
 
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
 
   for (unsigned i = 0; i < chromium_args.size(); ++i) {
-    CommandLine::StringType key, value;
+    base::CommandLine::StringType key, value;
 #if defined(OS_WIN)
     // Note:: On Windows, the |CommandLine::StringType| will be |std::wstring|,
     // so the chromium_args[i] is not compatible. We convert the wstring to
     // string here is safe beacuse we use ASCII only.
-    if (!IsSwitch(ASCIIToWide(chromium_args[i]), &key, &value))
+    if (!base::IsSwitch(ASCIIToWide(chromium_args[i]), &key, &value))
       continue;
-    command_line->AppendSwitchASCII(WideToASCII(key),
-                                    WideToASCII(value));
+    command_line->AppendSwitchASCII(base::UTF16ToASCII(key),
+                                    base::UTF16ToASCII(value));
 #else
-    if (!IsSwitch(chromium_args[i], &key, &value))
+    if (!base::IsSwitch(chromium_args[i], &key, &value))
       continue;
     command_line->AppendSwitchASCII(key, value);
 #endif
@@ -443,7 +453,7 @@ void Package::ReadJsFlags() {
   if (!root()->GetStringASCII(switches::kmJsFlags, &flags))
     return;
 
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   command_line->AppendSwitchASCII("js-flags", flags);
 }
 

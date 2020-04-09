@@ -25,34 +25,52 @@
 #include "base/memory/ref_counted.h"
 #include "content/public/browser/download_manager_delegate.h"
 
+#if defined(OS_WIN)
+#include "ui/shell_dialogs/select_file_dialog.h"
+#endif
+
 namespace content {
 
 class DownloadManager;
 
 class ShellDownloadManagerDelegate
     : public DownloadManagerDelegate,
+#if defined(OS_WIN)
+      public ui::SelectFileDialog::Listener,
+#endif
       public base::RefCountedThreadSafe<ShellDownloadManagerDelegate> {
  public:
   ShellDownloadManagerDelegate();
 
   void SetDownloadManager(DownloadManager* manager);
 
-  virtual void Shutdown() OVERRIDE;
-  virtual bool DetermineDownloadTarget(
+  void Shutdown() override;
+  bool DetermineDownloadTarget(
       DownloadItem* download,
-      const DownloadTargetCallback& callback) OVERRIDE;
+      const DownloadTargetCallback& callback) override;
+  bool ShouldOpenDownload(
+      DownloadItem* item,
+      const DownloadOpenDelayedCallback& callback) override;
+  void GetNextId(const DownloadIdCallback& callback) override;
 
   // Inhibits prompting and sets the default download path.
   void SetDownloadBehaviorForTesting(
                                      const base::FilePath& default_download_path);
+#if defined(OS_WIN)
+  virtual void FileSelected(
+      const base::FilePath& path, int index, void* params) override;
+  virtual void FileSelectionCanceled(void* params) override;
+#endif
 
  protected:
   // To allow subclasses for testing.
-  virtual ~ShellDownloadManagerDelegate();
+  ~ShellDownloadManagerDelegate() final;
 
  private:
   friend class base::RefCountedThreadSafe<ShellDownloadManagerDelegate>;
 
+  typedef base::Callback<void(const base::FilePath&)>
+      FilenameDeterminedCallback;
 
   void GenerateFilename(int32 download_id,
                         const DownloadTargetCallback& callback,
@@ -64,10 +82,15 @@ class ShellDownloadManagerDelegate
   void ChooseDownloadPath(int32 download_id,
                           const DownloadTargetCallback& callback,
                           const base::FilePath& suggested_path);
+  void OnFileSelected(const base::FilePath& path);
 
   DownloadManager* download_manager_;
   base::FilePath default_download_path_;
   bool suppress_prompting_;
+#if defined(OS_WIN)
+  DownloadTargetCallback callback_;
+  scoped_refptr<ui::SelectFileDialog> select_file_dialog_;
+#endif
 
   DISALLOW_COPY_AND_ASSIGN(ShellDownloadManagerDelegate);
 };

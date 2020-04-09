@@ -24,7 +24,20 @@
 #include "base/logging.h"
 #include "base/message_loop/message_loop.h"
 #include "base/values.h"
+
+#if defined(OS_WIN)
+#include "base/strings/utf_string_conversions.h"
+#include "base/files/file_path.h"
+#include "base/files/file_util.h"
+#include "base/win/shortcut.h"
+#include "base/path_service.h"
+#include "content/nw/src/common/shell_switches.h"
+#endif
+
 #include "content/nw/src/api/api_messages.h"
+#include "content/nw/src/api/dispatcher_host.h"
+#include "content/nw/src/api/shortcut/global_shortcut_listener.h"
+#include "content/nw/src/api/shortcut/shortcut.h"
 #include "content/nw/src/breakpad_linux.h"
 #include "content/nw/src/browser/native_window.h"
 #include "content/nw/src/browser/net_disk_cache_remover.h"
@@ -32,10 +45,18 @@
 #include "content/nw/src/nw_shell.h"
 #include "content/nw/src/shell_browser_context.h"
 #include "content/common/view_messages.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/render_process_host.h"
+#include "net/proxy/proxy_config.h"
+#include "net/proxy/proxy_config_service_fixed.h"
+#include "net/proxy/proxy_service.h"
+#include "net/url_request/url_request_context.h"
+#include "net/url_request/url_request_context_getter.h"
 
 using base::MessageLoop;
+using base::CommandLine;
+using content::BrowserThread;
 using content::Shell;
 using content::ShellBrowserContext;
 using content::RenderProcessHost;
@@ -69,6 +90,17 @@ void GetRenderProcessHosts(std::set<RenderProcessHost*>& rphs) {
   }
 }
 
+void SetProxyConfigCallback(
+    base::WaitableEvent* done,
+    net::URLRequestContextGetter* url_request_context_getter,
+    const net::ProxyConfig& proxy_config) {
+  net::ProxyService* proxy_service =
+      url_request_context_getter->GetURLRequestContext()->proxy_service();
+  proxy_service->ResetConfigService(
+      new net::ProxyConfigServiceFixed(proxy_config));
+  done->Signal();
+}
+
 }  // namespace
 
 // static
@@ -76,23 +108,22 @@ void App::Call(const std::string& method,
                const base::ListValue& arguments) {
   if (method == "Quit") {
     Quit();
-    return;
   } else if (method == "CloseAllWindows") {
     CloseAllWindows();
-    return;
   } else if (method == "CrashBrowser") {
     int* ptr = NULL;
     *ptr = 1;
+  } else {
+    NOTREACHED() << "Calling unknown method " << method << " of App.";
   }
-  NOTREACHED() << "Calling unknown method " << method << " of App";
 }
-
 
 // static
 void App::Call(Shell* shell,
                const std::string& method,
                const base::ListValue& arguments,
-               base::ListValue* result) {
+               base::ListValue* result,
+               DispatcherHost* dispatcher_host) {
   if (method == "GetDataPath") {
     ShellBrowserContext* browser_context =
       static_cast<ShellBrowserContext*>(shell->web_contents()->GetBrowserContext());
@@ -119,13 +150,65 @@ void App::Call(Shell* shell,
   } else if (method == "ClearCache") {
     ClearCache(GetRenderProcessHost());
     return;
+  } else if (method == "CreateShortcut") {
+#if defined(OS_WIN)
+    base::string16 path;
+    arguments.GetString(0, &path);
+
+    base::win::ShortcutProperties props;
+    base::string16 appID;
+    if (content::Shell::GetPackage()->root()->GetString("app-id", &appID) == false)
+      content::Shell::GetPackage()->root()->GetString(switches::kmName, &appID);
+    const std::wstring appName = base::UTF8ToWide(content::Shell::GetPackage()->GetName());
+    props.set_app_id(appID);
+
+    base::FilePath processPath;
+    PathService::Get(base::FILE_EXE, &processPath);
+    props.set_target(processPath);
+
+    base::FilePath shortcutPath(path);
+    result->AppendBoolean(base::win::CreateOrUpdateShortcutLink(shortcutPath, props, 
+      base::PathExists(shortcutPath) ? base::win::SHORTCUT_UPDATE_EXISTING : base::win::SHORTCUT_CREATE_ALWAYS));
+#else
+    result->AppendBoolean(false);
+#endif
+    return;
   } else if (method == "GetPackage") {
     result->AppendString(shell->GetPackage()->package_string());
     return;
   } else if (method == "SetCrashDumpDir") {
     std::string path;
     arguments.GetString(0, &path);
-    result->AppendBoolean(SetCrashDumpPath(path.c_str()));
+    //FIXME: result->AppendBoolean(SetCrashDumpPath(path.c_str()));
+    return;
+  } else if (method == "RegisterGlobalHotKey") {
+    int object_id = -1;
+    arguments.GetInteger(0, &object_id);
+    Shortcut* shortcut =
+        static_cast<Shortcut*>(DispatcherHost::GetApiObject(object_id));
+    bool success = GlobalShortcutListener::GetInstance()->RegisterAccelerator(
+                       shortcut->GetAccelerator(), shortcut);
+    if (!success)
+      shortcut->OnFailed("Register global desktop keyboard shortcut failed.");
+
+    result->AppendBoolean(success);
+    return;
+  } else if (method == "UnregisterGlobalHotKey") {
+    int object_id = -1;
+    arguments.GetInteger(0, &object_id);
+    Shortcut* shortcut =
+        static_cast<Shortcut*>(DispatcherHost::GetApiObject(object_id));
+    GlobalShortcutListener::GetInstance()->UnregisterAccelerator(
+        shortcut->GetAccelerator(), shortcut);
+    return;
+  } else if (method == "SetProxyConfig") {
+    std::string proxy_config, pac_url;
+    arguments.GetString(0, &proxy_config);
+    arguments.GetString(1, &pac_url);
+    SetProxyConfig(GetRenderProcessHost(), proxy_config, pac_url);
+    return;
+  } else if (method == "DoneMenuShow") {
+    dispatcher_host->quit_run_loop();
     return;
   }
 
@@ -216,4 +299,29 @@ void App::ClearCache(content::RenderProcessHost* render_process_host) {
                           render_process_host->GetID());
 }
 
+void App::SetProxyConfig(content::RenderProcessHost* render_process_host,
+                         const std::string& proxy_config,
+                         const std::string& pac_url) {
+  net::ProxyConfig config;
+  if (!pac_url.empty()) {
+    if (pac_url == "<direct>")
+      config = net::ProxyConfig::CreateDirect();
+    else if (pac_url == "<auto>")
+      config = net::ProxyConfig::CreateAutoDetect();
+    else
+      config = net::ProxyConfig::CreateFromCustomPacURL(GURL(pac_url));
+  } else
+    config.proxy_rules().ParseFromString(proxy_config);
+  net::URLRequestContextGetter* context_getter =
+    render_process_host->GetBrowserContext()->
+    GetRequestContextForRenderProcess(render_process_host->GetID());
+
+  base::WaitableEvent done(false, false);
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
+      base::Bind(&SetProxyConfigCallback, &done,
+                 make_scoped_refptr(context_getter), config));
+  done.Wait();
+
+}
 }  // namespace nwapi

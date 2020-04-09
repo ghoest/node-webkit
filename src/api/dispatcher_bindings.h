@@ -30,11 +30,13 @@ namespace nwapi {
 class DispatcherBindings : public v8::Extension {
  public:
   DispatcherBindings();
-  virtual ~DispatcherBindings();
+  ~DispatcherBindings() final;
 
   // v8::Extension implementation.
-  virtual v8::Handle<v8::FunctionTemplate>
-      GetNativeFunction(v8::Handle<v8::String> name) OVERRIDE;
+  v8::Handle<v8::FunctionTemplate>
+      GetNativeFunctionTemplate(
+                        v8::Isolate* isolate,
+                        v8::Handle<v8::String> name) override;
 
  private:
   // Helper functions for bindings.
@@ -62,6 +64,11 @@ class DispatcherBindings : public v8::Extension {
   static void CallStaticMethodSync(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void CrashRenderer(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void SetCrashDumpDir(const v8::FunctionCallbackInfo<v8::Value>& args);
+#if defined(OS_MACOSX)
+  static void InitMsgIDMap();
+  static void GetNSStringWithFixup(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void GetNSStringFWithFixup(const v8::FunctionCallbackInfo<v8::Value>& args);
+#endif
 
   DISALLOW_COPY_AND_ASSIGN(DispatcherBindings);
 };

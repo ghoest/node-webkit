@@ -32,6 +32,7 @@
 namespace base {
 class DictionaryValue;
 class ListValue;
+class RunLoop;
 }
 
 namespace WebKit {
@@ -49,15 +50,16 @@ class Base;
 class DispatcherHost : public content::WebContentsObserver {
  public:
   explicit DispatcherHost(content::RenderViewHost* render_view_host);
-  virtual ~DispatcherHost();
+  ~DispatcherHost() final;
 
   // Get C++ object from its id.
-  Base* GetApiObject(int id);
+  static Base* GetApiObject(int id);
 
   static int AllocateId();
+
   // Helper function to convert type.
   template<class T>
-  T* GetApiObject(int id) {
+  static T* GetApiObject(int id) {
     return static_cast<T*>(GetApiObject(id));
   }
 
@@ -68,12 +70,16 @@ class DispatcherHost : public content::WebContentsObserver {
                  const std::string& event,
                  const base::ListValue& arguments);
 
-  virtual bool Send(IPC::Message* message) OVERRIDE;
-  virtual void RenderViewHostChanged(content::RenderViewHost* old_host,
-                                     content::RenderViewHost* new_host) OVERRIDE;
+  bool Send(IPC::Message* message) override;
+  void RenderViewHostChanged(content::RenderViewHost* old_host,
+                                     content::RenderViewHost* new_host) override;
   content::RenderViewHost* render_view_host() const {
     return render_view_host_;
   }
+
+  void set_run_loop(base::RunLoop* run_loop) { run_loop_ = run_loop; }
+  void quit_run_loop();
+  base::RunLoop* run_loop() { return run_loop_; }
 
  private:
   content::RenderViewHost* render_view_host_;
@@ -87,9 +93,14 @@ class DispatcherHost : public content::WebContentsObserver {
   // Factory to generate weak pointer
   base::WeakPtrFactory<DispatcherHost> weak_ptr_factory_;
 
+  base::RunLoop* run_loop_;
+
   // RenderViewHostObserver implementation.
   // WebContentsObserver implementation:
-  virtual bool OnMessageReceived(const IPC::Message& message) OVERRIDE;
+  bool OnMessageReceived(
+                         content::RenderViewHost* render_view_host,
+                         const IPC::Message& message) override;
+
 
   void OnAllocateObject(int object_id,
                         const std::string& type,
@@ -117,6 +128,8 @@ class DispatcherHost : public content::WebContentsObserver {
                      const base::DictionaryValue& manifest,
                      int* routing_id);
   void OnAllocateId(int* ret);
+  void OnSetForceClose(bool force, int* ret);
+
   DISALLOW_COPY_AND_ASSIGN(DispatcherHost);
 };
 

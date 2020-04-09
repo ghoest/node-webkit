@@ -16,6 +16,11 @@
 
 namespace nw {
 class Package;
+class NwFormDatabaseService;
+}
+
+namespace extensions {
+  class InfoMap;
 }
 
 namespace content {
@@ -31,45 +36,44 @@ class ShellBrowserContext : public BrowserContext {
  public:
   explicit ShellBrowserContext(bool off_the_record,
                                nw::Package* package);
-  virtual ~ShellBrowserContext();
+   ~ShellBrowserContext() final;
 
   // BrowserContext implementation.
-  virtual FilePath GetPath() const OVERRIDE;
-  virtual bool IsOffTheRecord() const OVERRIDE;
-  virtual DownloadManagerDelegate* GetDownloadManagerDelegate() OVERRIDE;
-  virtual net::URLRequestContextGetter* GetRequestContext() OVERRIDE;
-  virtual net::URLRequestContextGetter* GetRequestContextForRenderProcess(
-      int renderer_child_id) OVERRIDE;
-  virtual net::URLRequestContextGetter* GetMediaRequestContext() OVERRIDE;
-  virtual net::URLRequestContextGetter* GetMediaRequestContextForRenderProcess(
-      int renderer_child_id) OVERRIDE;
-  virtual net::URLRequestContextGetter*
+   FilePath GetPath() const override;
+   bool IsOffTheRecord() const override;
+   DownloadManagerDelegate* GetDownloadManagerDelegate() override;
+   net::URLRequestContextGetter* GetRequestContext() override;
+   net::URLRequestContextGetter* GetRequestContextForRenderProcess(
+      int renderer_child_id) override;
+   net::URLRequestContextGetter* GetMediaRequestContext() override;
+   net::URLRequestContextGetter* GetMediaRequestContextForRenderProcess(
+      int renderer_child_id) override;
+   net::URLRequestContextGetter*
       GetMediaRequestContextForStoragePartition(
           const FilePath& partition_path,
-          bool in_memory) OVERRIDE;
-  virtual ResourceContext* GetResourceContext() OVERRIDE;
-  virtual GeolocationPermissionContext*
-      GetGeolocationPermissionContext() OVERRIDE;
-  virtual quota::SpecialStoragePolicy* GetSpecialStoragePolicy() OVERRIDE;
-  virtual void RequestMIDISysExPermission(
-      int render_process_id,
-      int render_view_id,
-      int bridge_id,
-      const GURL& requesting_frame,
-      const MIDISysExPermissionCallback& callback) OVERRIDE;
-  virtual void CancelMIDISysExPermissionRequest(
-    int render_process_id,
-    int render_view_id,
-    int bridge_id,
-    const GURL& requesting_frame) OVERRIDE;
+          bool in_memory) override;
+   ResourceContext* GetResourceContext() override;
+   storage::SpecialStoragePolicy* GetSpecialStoragePolicy() override;
+   BrowserPluginGuestManager* GetGuestManager() override;
+   PushMessagingService* GetPushMessagingService() override;
+   SSLHostStateDelegate* GetSSLHostStateDelegate() override;
+  scoped_ptr<ZoomLevelDelegate> CreateZoomLevelDelegate(
+      const base::FilePath& partition_path) override;
 
+  nw::NwFormDatabaseService* GetFormDatabaseService();
+
+  // Maps to BrowserMainParts::PreMainMessageLoopRun.
+  void PreMainMessageLoopRun();
 
   net::URLRequestContextGetter* CreateRequestContext(
-                                                     ProtocolHandlerMap* protocol_handlers);
+        ProtocolHandlerMap* protocol_handlers,
+        URLRequestInterceptorScopedVector request_interceptors,
+        extensions::InfoMap*);
   net::URLRequestContextGetter* CreateRequestContextForStoragePartition(
       const base::FilePath& partition_path,
       bool in_memory,
-      ProtocolHandlerMap* protocol_handlers);
+      ProtocolHandlerMap* protocol_handlers,
+      URLRequestInterceptorScopedVector request_interceptors);
 
   bool pinning_renderer() { return !disable_pinning_renderer_; }
   void set_pinning_renderer(bool val) { disable_pinning_renderer_ = !val; }
@@ -91,6 +95,7 @@ class ShellBrowserContext : public BrowserContext {
   scoped_ptr<ShellResourceContext> resource_context_;
   scoped_refptr<ShellDownloadManagerDelegate> download_manager_delegate_;
   scoped_refptr<ShellURLRequestContextGetter> url_request_getter_;
+  scoped_ptr<nw::NwFormDatabaseService> form_database_service_;
 
   DISALLOW_COPY_AND_ASSIGN(ShellBrowserContext);
 };

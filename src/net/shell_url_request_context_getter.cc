@@ -36,11 +36,12 @@
 #include "content/nw/src/nw_protocol_handler.h"
 #include "content/nw/src/nw_shell.h"
 #include "content/nw/src/shell_content_browser_client.h"
+#include "extensions/browser/info_map.h"
 #include "net/cert/cert_verifier.h"
-#include "net/ssl/default_server_bound_cert_store.h"
+#include "net/cert/cert_verify_proc.h"
+#include "net/cert/multi_threaded_cert_verifier.h"
 #include "net/dns/host_resolver.h"
 #include "net/dns/mapped_host_resolver.h"
-#include "net/ssl/server_bound_cert_service.h"
 #include "net/ssl/ssl_config_service_defaults.h"
 #include "net/cookies/cookie_monster.h"
 #include "net/http/http_auth_filter.h"
@@ -53,11 +54,13 @@
 #include "net/proxy/proxy_script_fetcher_impl.h"
 #include "net/proxy/proxy_service.h"
 #include "net/proxy/proxy_service_v8.h"
+#include "net/ssl/channel_id_service.h"
+#include "net/ssl/default_channel_id_store.h"
 #include "net/url_request/file_protocol_handler.h"
-#include "net/url_request/protocol_intercept_job_factory.h"
 #include "net/url_request/static_http_user_agent_settings.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_storage.h"
+#include "net/url_request/url_request_intercepting_job_factory.h"
 #include "net/url_request/url_request_job_factory_impl.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -90,18 +93,20 @@ class NWCookieMonsterDelegate : public net::CookieMonster::Delegate {
   }
 
   // net::CookieMonster::Delegate implementation.
-  virtual void OnCookieChanged(
+  void OnCookieChanged(
       const net::CanonicalCookie& cookie,
       bool removed,
-      net::CookieMonster::Delegate::ChangeCause cause) OVERRIDE {
+      net::CookieMonster::Delegate::ChangeCause cause) override {
     BrowserThread::PostTask(
         BrowserThread::UI, FROM_HERE,
         base::Bind(&NWCookieMonsterDelegate::OnCookieChangedAsyncHelper,
                    this, cookie, removed, cause));
   }
+  void OnLoaded() override {
+  }
 
  private:
-  virtual ~NWCookieMonsterDelegate() {}
+  ~NWCookieMonsterDelegate() final {}
 
   void OnCookieChangedAsyncHelper(
       const net::CanonicalCookie& cookie,
@@ -128,10 +133,12 @@ ShellURLRequestContextGetter::ShellURLRequestContextGetter(
     MessageLoop* file_loop,
     ProtocolHandlerMap* protocol_handlers,
     ShellBrowserContext* browser_context,
+    URLRequestInterceptorScopedVector request_interceptors,
     const std::string& auth_schemes,
     const std::string& auth_server_whitelist,
     const std::string& auth_delegate_whitelist,
-    const std::string& gssapi_library_name)
+    const std::string& gssapi_library_name,
+    extensions::InfoMap* extension_info_map)
     : ignore_certificate_errors_(ignore_certificate_errors),
       data_path_(data_path),
       root_path_(root_path),
@@ -143,7 +150,9 @@ ShellURLRequestContextGetter::ShellURLRequestContextGetter(
       gssapi_library_name_(gssapi_library_name),
       io_loop_(io_loop),
       file_loop_(file_loop),
-      browser_context_(browser_context) {
+      browser_context_(browser_context),
+      request_interceptors_(request_interceptors.Pass()),
+      extension_info_map_(extension_info_map){
   // Must first be created on the UI thread.
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
@@ -154,7 +163,7 @@ ShellURLRequestContextGetter::ShellURLRequestContextGetter(
   // the URLRequestContextStorage on the IO thread in GetURLRequestContext().
   proxy_config_service_.reset(
       net::ProxyService::CreateSystemProxyConfigService(
-          io_loop_->message_loop_proxy(), file_loop_));
+                                                        io_loop_->message_loop_proxy(), file_loop_->message_loop_proxy()));
 }
 
 ShellURLRequestContextGetter::~ShellURLRequestContextGetter() {
@@ -169,26 +178,26 @@ net::URLRequestContext* ShellURLRequestContextGetter::GetURLRequestContext() {
           GetContentClient()->browser());
 
   url_request_context_.reset(new net::URLRequestContext());
-    network_delegate_.reset(new ShellNetworkDelegate);
-    url_request_context_->set_network_delegate(network_delegate_.get());
-    storage_.reset(
+  network_delegate_.reset(new ShellNetworkDelegate(browser_context_, extension_info_map_));
+  url_request_context_->set_network_delegate(network_delegate_.get());
+  storage_.reset(
         new net::URLRequestContextStorage(url_request_context_.get()));
 
     FilePath cookie_path = data_path_.Append(FILE_PATH_LITERAL("cookies"));
     scoped_refptr<net::CookieStore> cookie_store = NULL;
-    cookie_store = content::CreatePersistentCookieStore(
-        cookie_path,
-        false,
-        NULL,
-        new NWCookieMonsterDelegate(browser_context_));
+
+    content::CookieStoreConfig cookie_config(
+                                             cookie_path, content::CookieStoreConfig::PERSISTANT_SESSION_COOKIES,
+                                             NULL, new NWCookieMonsterDelegate(browser_context_));
+    cookie_store = content::CreateCookieStore(cookie_config);
     cookie_store->GetCookieMonster()->SetPersistSessionCookies(true);
-    storage_->set_cookie_store(cookie_store);
+    storage_->set_cookie_store(cookie_store.get());
 
-    const char* schemes[] = {"http", "https", "file", "app"};
-    cookie_store->GetCookieMonster()->SetCookieableSchemes(schemes, 4);
+    const char* schemes[] = {"http", "https", "ws", "wss", "app", "file"};
+    cookie_store->GetCookieMonster()->SetCookieableSchemes(schemes, 6);
 
-    storage_->set_server_bound_cert_service(new net::ServerBoundCertService(
-        new net::DefaultServerBoundCertStore(NULL),
+    storage_->set_channel_id_service(new net::ChannelIDService(
+        new net::DefaultChannelIDStore(NULL),
         base::WorkerPool::GetTaskRunner(true)));
 
     std::string accept_lang = browser_client->GetApplicationLocale();
@@ -199,12 +208,19 @@ net::URLRequestContext* ShellURLRequestContextGetter::GetURLRequestContext() {
     storage_->set_http_user_agent_settings(
          new net::StaticHttpUserAgentSettings(
                 net::HttpUtil::GenerateAcceptLanguageHeader(accept_lang),
-                EmptyString()));
+                base::EmptyString()));
 
     scoped_ptr<net::HostResolver> host_resolver(
         net::HostResolver::CreateDefaultResolver(NULL));
 
-    storage_->set_cert_verifier(net::CertVerifier::CreateDefault());
+    net::CertVerifyProc *verify_proc = net::CertVerifyProc::CreateDefault();
+    if (!verify_proc->SupportsAdditionalTrustAnchors()) {
+      LOG(WARNING)
+        << "Additional trust anchors not supported on the current platform!";
+    }
+    net::MultiThreadedCertVerifier *verifier = new net::MultiThreadedCertVerifier(verify_proc);
+    verifier->SetCertTrustAnchorProvider(this);
+    storage_->set_cert_verifier(verifier);
     storage_->set_transport_security_state(new net::TransportSecurityState);
 
     net::ProxyService* proxy_service;
@@ -231,7 +247,7 @@ net::URLRequestContext* ShellURLRequestContextGetter::GetURLRequestContext() {
     net::HttpCache::DefaultBackend* main_backend =
         new net::HttpCache::DefaultBackend(
             net::DISK_CACHE,
-            net::CACHE_BACKEND_SIMPLE,
+            net::CACHE_BACKEND_BLOCKFILE,
             cache_path,
             10 * 1024 * 1024,  // 10M
             BrowserThread::GetMessageLoopProxyForThread(
@@ -242,8 +258,8 @@ net::URLRequestContext* ShellURLRequestContextGetter::GetURLRequestContext() {
         url_request_context_->cert_verifier();
     network_session_params.transport_security_state =
         url_request_context_->transport_security_state();
-    network_session_params.server_bound_cert_service =
-        url_request_context_->server_bound_cert_service();
+    network_session_params.channel_id_service =
+        url_request_context_->channel_id_service();
     network_session_params.proxy_service =
         url_request_context_->proxy_service();
     network_session_params.ssl_config_service =
@@ -270,7 +286,7 @@ net::URLRequestContext* ShellURLRequestContextGetter::GetURLRequestContext() {
         new net::URLRequestJobFactoryImpl());
     InstallProtocolHandlers(job_factory.get(), &protocol_handlers_);
     job_factory->SetProtocolHandler(
-         chrome::kFileScheme,
+         url::kFileScheme,
          new net::FileProtocolHandler(
                content::BrowserThread::GetBlockingPool()->
                GetTaskRunnerWithShutdownBehavior(
@@ -279,8 +295,19 @@ net::URLRequestContext* ShellURLRequestContextGetter::GetURLRequestContext() {
                                     new net::AppProtocolHandler(root_path_));
     job_factory->SetProtocolHandler("nw", new nw::NwProtocolHandler());
 
-    storage_->set_job_factory(job_factory.release());
+    // Set up interceptors in the reverse order.
+    scoped_ptr<net::URLRequestJobFactory> top_job_factory =
+        job_factory.Pass();
+    for (URLRequestInterceptorScopedVector::reverse_iterator i =
+             request_interceptors_.rbegin();
+         i != request_interceptors_.rend();
+         ++i) {
+      top_job_factory.reset(new net::URLRequestInterceptingJobFactory(
+          top_job_factory.Pass(), make_scoped_ptr(*i)));
+    }
+    request_interceptors_.weak_clear();
 
+    storage_->set_job_factory(top_job_factory.release());
   }
 
   return url_request_context_.get();
@@ -293,6 +320,17 @@ scoped_refptr<base::SingleThreadTaskRunner>
 
 net::HostResolver* ShellURLRequestContextGetter::host_resolver() {
   return url_request_context_->host_resolver();
+}
+
+void ShellURLRequestContextGetter::SetAdditionalTrustAnchors(const net::CertificateList& trust_anchors)
+{
+  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+  trust_anchors_ = trust_anchors;
+}
+
+const net::CertificateList& ShellURLRequestContextGetter::GetAdditionalTrustAnchors() {
+  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+  return trust_anchors_;
 }
 
 net::HttpAuthHandlerFactory* ShellURLRequestContextGetter::CreateDefaultAuthHandlerFactory(

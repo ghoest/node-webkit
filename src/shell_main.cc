@@ -20,24 +20,81 @@
 
 #include "content/public/app/content_main.h"
 
+#include "base/command_line.h"
 #include "content/nw/src/shell_main_delegate.h"
 #include "sandbox/win/src/sandbox_types.h"
 
 #if defined(OS_WIN)
+#include <windows.h>
+#include <shellscalingapi.h>
+
+#include "base/win/win_util.h"
+#include "base/win/windows_version.h"
 #include "content/public/app/startup_helper_win.h"
+#include "ui/gfx/win/dpi.h"
 #endif
 
 #if defined(OS_MACOSX)
 #include "shell_content_main.h"
 #endif
 
+using base::CommandLine;
+
 #if defined(OS_WIN)
 
+// Win8.1 supports monitor-specific DPI scaling.
+bool SetProcessDpiAwarenessWrapper(PROCESS_DPI_AWARENESS value) {
+  typedef HRESULT(WINAPI *SetProcessDpiAwarenessPtr)(PROCESS_DPI_AWARENESS);
+  SetProcessDpiAwarenessPtr set_process_dpi_awareness_func =
+      reinterpret_cast<SetProcessDpiAwarenessPtr>(
+          GetProcAddress(GetModuleHandleA("user32.dll"),
+                         "SetProcessDpiAwarenessInternal"));
+  if (set_process_dpi_awareness_func) {
+    HRESULT hr = set_process_dpi_awareness_func(value);
+    if (SUCCEEDED(hr)) {
+      VLOG(1) << "SetProcessDpiAwareness succeeded.";
+      return true;
+    } else if (hr == E_ACCESSDENIED) {
+      LOG(ERROR) << "Access denied error from SetProcessDpiAwareness. "
+          "Function called twice, or manifest was used.";
+    }
+  }
+  return false;
+}
+
+// This function works for Windows Vista through Win8. Win8.1 must use
+// SetProcessDpiAwareness[Wrapper].
+BOOL SetProcessDPIAwareWrapper() {
+  typedef BOOL(WINAPI *SetProcessDPIAwarePtr)(VOID);
+  SetProcessDPIAwarePtr set_process_dpi_aware_func =
+      reinterpret_cast<SetProcessDPIAwarePtr>(
+      GetProcAddress(GetModuleHandleA("user32.dll"),
+                      "SetProcessDPIAware"));
+  return set_process_dpi_aware_func &&
+    set_process_dpi_aware_func();
+}
+
+void EnableHighDPISupport() {
+  if (!SetProcessDpiAwarenessWrapper(PROCESS_SYSTEM_DPI_AWARE)) {
+    SetProcessDPIAwareWrapper();
+  }
+}
+
 int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE, wchar_t*, int) {
+  CommandLine::Init(0, NULL);
+
+  if (base::win::GetVersion() >= base::win::VERSION_WIN7)
+    EnableHighDPISupport();
+
   sandbox::SandboxInterfaceInfo sandbox_info = {0};
   content::InitializeSandboxInfo(&sandbox_info);
   content::ShellMainDelegate delegate;
-  return content::ContentMain(instance, &sandbox_info, &delegate);
+  content::ContentMainParams params(&delegate);
+  params.instance = instance;
+  params.sandbox_info = &sandbox_info;
+  int rv = content::ContentMain(params);
+  base::win::SetShouldCrashOnProcessDetach(false);
+  return rv;
 }
 
 #else
@@ -49,7 +106,10 @@ int main(int argc, const char** argv) {
   return ::ContentMain(argc, argv);
 #else
   content::ShellMainDelegate delegate;
-  return content::ContentMain(argc, argv, &delegate);
+  content::ContentMainParams params(&delegate);
+  params.argc = argc;
+  params.argv = argv;
+  return content::ContentMain(params);
 #endif  // OS_MACOSX
 }
 

@@ -24,7 +24,7 @@
 #include <Foundation/NSURL.h>
 
 #include "base/bind.h"
-#include "base/file_util.h"
+#include "base/files/file_util.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/strings/string_util.h"
@@ -33,7 +33,6 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/download_manager.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/browser/web_contents_view.h"
 #include "net/base/net_util.h"
 
 using base::FilePath;

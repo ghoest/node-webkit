@@ -19,16 +19,17 @@
 //  CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 var argv, fullArgv, dataPath, manifest;
+var v8_util = process.binding('v8_util');
 
 function App() {
 }
 require('util').inherits(App, exports.Base);
 
 App.filteredArgv = [
-  /--no-toolbar/,
-  /--url=.*/,
-  /--remote-debugging-port=.*/,
-  /--renderer-cmd-prefix.*/,
+  /^--no-toolbar$/,
+  /^--url=/,
+  /^--remote-debugging-port=/,
+  /^--renderer-cmd-prefix/,
 ];
 
 App.prototype.quit = function() {
@@ -52,12 +53,48 @@ App.prototype.setCrashDumpDir = function(dir) {
   return nw.callStaticMethodSync('App', 'SetCrashDumpDir', [ dir ]);
 }
 
+App.prototype.createShortcut = function(dir) {
+  return nw.callStaticMethodSync('App', 'CreateShortcut', [ dir ]);
+}
+
 App.prototype.clearCache = function() {
   nw.callStaticMethodSync('App', 'ClearCache', [ ]);
 }
 
+App.prototype.doneMenuShow = function() {
+  nw.callStaticMethodSync('App', 'DoneMenuShow', [ ]);
+}
+
 App.prototype.getProxyForURL = function (url) {
   return nw.callStaticMethodSync('App', 'getProxyForURL', [ url ]);
+}
+
+App.prototype.setProxyConfig = function (proxy_config, pac_url) {
+  return nw.callStaticMethodSync('App', 'SetProxyConfig', [ proxy_config, pac_url ]);
+}
+
+App.prototype.addOriginAccessWhitelistEntry = function(sourceOrigin, destinationProtocol, destinationHost, allowDestinationSubdomains) {
+    return nw.callStaticMethodSync('App', 'AddOriginAccessWhitelistEntry', sourceOrigin, destinationProtocol, destinationHost, allowDestinationSubdomains);
+}
+
+App.prototype.removeOriginAccessWhitelistEntry = function(sourceOrigin, destinationProtocol, destinationHost, allowDestinationSubdomains) {
+    return nw.callStaticMethodSync('App', 'RemoveOriginAccessWhitelistEntry', sourceOrigin, destinationProtocol, destinationHost, allowDestinationSubdomains);
+}
+
+App.prototype.registerGlobalHotKey = function(shortcut) {
+  if (v8_util.getConstructorName(shortcut) != "Shortcut")
+    throw new TypeError("Invaild parameter, need Shortcut object.");
+
+  return nw.callStaticMethodSync('App',
+                                 'RegisterGlobalHotKey',
+                                 [ shortcut.id ])[0];
+}
+
+App.prototype.unregisterGlobalHotKey = function(shortcut) {
+  if (v8_util.getConstructorName(shortcut) != "Shortcut")
+    throw new TypeError("Invaild parameter, need Shortcut object.");
+
+  nw.callStaticMethodSync('App', 'UnregisterGlobalHotKey', [ shortcut.id ]);
 }
 
 App.prototype.__defineGetter__('argv', function() {

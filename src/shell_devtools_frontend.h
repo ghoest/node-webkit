@@ -10,8 +10,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "content/public/browser/devtools_agent_host.h"
-#include "content/public/browser/devtools_client_host.h"
-#include "content/public/browser/devtools_frontend_host_delegate.h"
+#include "content/public/browser/devtools_frontend_host.h"
 #include "content/public/browser/web_contents_observer.h"
 
 namespace content {
@@ -21,30 +20,38 @@ class Shell;
 class WebContents;
 
 class ShellDevToolsFrontend : public WebContentsObserver,
-                              public DevToolsFrontendHostDelegate {
+  public DevToolsFrontendHost::Delegate,
+  public DevToolsAgentHostClient {
  public:
 
-                                // static ShellDevToolsFrontend* Show(WebContents* inspected_contents);
+    //static ShellDevToolsFrontend* Show(WebContents* inspected_contents);
   void Focus();
   void Close();
 
   Shell* frontend_shell() const { return frontend_shell_; }
 
   ShellDevToolsFrontend(Shell* frontend_shell, DevToolsAgentHost* agent_host);
-  virtual ~ShellDevToolsFrontend();
+  ~ShellDevToolsFrontend() final;
  private:
 
   // WebContentsObserver overrides
-  virtual void RenderViewCreated(RenderViewHost* render_view_host) OVERRIDE;
-  virtual void WebContentsDestroyed(WebContents* web_contents) OVERRIDE;
+   void RenderViewCreated(RenderViewHost* render_view_host) override;
+   void WebContentsDestroyed() override;
 
-  // DevToolsFrontendHostDelegate implementation
-  virtual void DispatchOnEmbedder(const std::string& message) OVERRIDE {}
-  virtual void InspectedContentsClosing() OVERRIDE;
+  // content::DevToolsFrontendHost::Delegate implementation.
+   void HandleMessageFromDevToolsFrontend(
+      const std::string& message) override;
+   void HandleMessageFromDevToolsFrontendToBackend(
+      const std::string& message) override;
+
+  // content::DevToolsAgentHostClient implementation.
+  void DispatchProtocolMessage(DevToolsAgentHost* agent_host,
+                               const std::string& message) override;
+  void AgentHostClosed(DevToolsAgentHost* agent_host, bool replaced) override;
 
   Shell* frontend_shell_;
   scoped_refptr<DevToolsAgentHost> agent_host_;
-  scoped_ptr<DevToolsClientHost> frontend_host_;
+  scoped_ptr<DevToolsFrontendHost> frontend_host_;
 
   DISALLOW_COPY_AND_ASSIGN(ShellDevToolsFrontend);
 };

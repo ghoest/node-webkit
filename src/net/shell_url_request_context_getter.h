@@ -26,6 +26,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "content/public/browser/content_browser_client.h"
+#include "net/cert/cert_trust_anchor_provider.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "net/url_request/url_request_job_factory.h"
 
@@ -43,11 +44,15 @@ namespace base{
 class MessageLoop;
 }
 
+namespace extensions {
+  class InfoMap;
+}
+
 namespace content {
 
 class ShellBrowserContext;
 
- class ShellURLRequestContextGetter : public net::URLRequestContextGetter {
+ class ShellURLRequestContextGetter : public net::URLRequestContextGetter, public net::CertTrustAnchorProvider {
  public:
   ShellURLRequestContextGetter(
       bool ignore_certificate_errors,
@@ -57,20 +62,27 @@ class ShellBrowserContext;
       base::MessageLoop* file_loop,
       ProtocolHandlerMap* protocol_handlers,
       ShellBrowserContext*,
+      URLRequestInterceptorScopedVector request_interceptors,
       const std::string& auth_schemes,
       const std::string& auth_server_whitelist,
       const std::string& auth_delegate_whitelist,
-      const std::string& gssapi_library_name);
+      const std::string& gssapi_library_name,
+      extensions::InfoMap* extension_info_map);
 
   // net::URLRequestContextGetter implementation.
-  virtual net::URLRequestContext* GetURLRequestContext() OVERRIDE;
-  virtual scoped_refptr<base::SingleThreadTaskRunner>
-      GetNetworkTaskRunner() const OVERRIDE;
+   net::URLRequestContext* GetURLRequestContext() override;
+   scoped_refptr<base::SingleThreadTaskRunner>
+      GetNetworkTaskRunner() const override;
 
   net::HostResolver* host_resolver();
 
+  void SetAdditionalTrustAnchors(const net::CertificateList& trust_anchors);
+
+  // net::CertTrustAnchorProvider implementation.
+   const net::CertificateList& GetAdditionalTrustAnchors() override;
+
  protected:
-  virtual ~ShellURLRequestContextGetter();
+   ~ShellURLRequestContextGetter() final;
   net::HttpAuthHandlerFactory* CreateDefaultAuthHandlerFactory(net::HostResolver* resolver);
 
  private:
@@ -85,6 +97,7 @@ class ShellBrowserContext;
   std::string auth_delegate_whitelist_;
   std::string gssapi_library_name_;
   // std::vector<GURL> spdyproxy_auth_origins_;
+  net::CertificateList trust_anchors_;
 
   base::MessageLoop* io_loop_;
   base::MessageLoop* file_loop_;
@@ -96,6 +109,8 @@ class ShellBrowserContext;
   scoped_ptr<net::URLSecurityManager> url_security_manager_;
   ProtocolHandlerMap protocol_handlers_;
   ShellBrowserContext* browser_context_;
+  URLRequestInterceptorScopedVector request_interceptors_;
+  extensions::InfoMap* extension_info_map_;
 
   DISALLOW_COPY_AND_ASSIGN(ShellURLRequestContextGetter);
 };

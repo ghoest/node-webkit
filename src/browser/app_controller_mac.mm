@@ -31,11 +31,13 @@
 
 @implementation AppController
 
+@synthesize appReady;
+
 - (BOOL)application:(NSApplication*)sender
            openFile:(NSString*)filename {
   if (content::Shell::windows().size() == 0) {
-    CommandLine::ForCurrentProcess()->AppendArg([filename UTF8String]);
-    CommandLine::ForCurrentProcess()->FixOrigArgv4Finder([filename UTF8String]);
+    base::CommandLine::ForCurrentProcess()->AppendArg([filename UTF8String]);
+    base::CommandLine::ForCurrentProcess()->FixOrigArgv4Finder([filename UTF8String]);
     return TRUE;
   }
 
@@ -52,6 +54,15 @@
   return FALSE;
 }
 
+- (void) applicationWillFinishLaunching: (NSNotification *) note {
+	self.appReady = FALSE;
+	NSAppleEventManager *eventManager = [NSAppleEventManager sharedAppleEventManager];
+	[eventManager setEventHandler:self
+					  andSelector:@selector(handleGetURLEvent:withReplyEvent:)
+					forEventClass:kInternetEventClass
+					   andEventID:kAEGetURL];
+}
+
 - (void) applicationDidFinishLaunching: (NSNotification *) note {
   // Initlialize everything here
   content::ShellContentBrowserClient* browser_client = 
@@ -66,18 +77,48 @@
   [NSApp setMainMenu:[[[NSMenu alloc] init] autorelease]];
   [[NSApp mainMenu] addItem:[[[NSMenuItem alloc]
       initWithTitle:@"" action:nil keyEquivalent:@""] autorelease]];
+
+  self.appReady = TRUE;
+#if 0
   nw::StandardMenusMac standard_menus(
       browser_client->shell_browser_main_parts()->package()->GetName());
   standard_menus.BuildAppleMenu();
   if (!no_edit_menu)
     standard_menus.BuildEditMenu();
   standard_menus.BuildWindowMenu();
+#endif
 }
 
 - (BOOL)applicationShouldHandleReopen:(NSApplication *)theApplication
                     hasVisibleWindows:(BOOL)flag {
   nwapi::App::EmitReopenEvent();
   return YES;
+}
+
+- (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication*)app {
+  // The termination procedure is completely and gracefully handled by node-webkit
+  // (triggered by CloseAllWindows, app exits when last window closes) so we
+  // don't need Cocoa to terminate the application immediately (NSTerminateNow)
+  // neither run a special event loop (NSTerminateLater) waiting for a termination
+  // reply
+  nwapi::App::CloseAllWindows(false, true);
+  return NSTerminateCancel;
+}
+
+- (void)handleGetURLEvent:(NSAppleEventDescriptor *)event withReplyEvent:(NSAppleEventDescriptor *)replyEvent
+{
+	NSString *urlString = [[event paramDescriptorForKeyword:keyDirectObject] stringValue];
+	if (self.appReady) {
+		// Immediate handle of get url event
+		nwapi::App::EmitOpenEvent([urlString UTF8String]);
+	} else {
+		// App is not ready yet, add the URL to the command line arguments.
+		// This happens when the app is started by opening a link with the registered URL.
+		if (content::Shell::windows().size() == 0) {
+			base::CommandLine::ForCurrentProcess()->AppendArg([urlString UTF8String]);
+			base::CommandLine::ForCurrentProcess()->FixOrigArgv4Finder([urlString UTF8String]);
+		}
+	}
 }
 
 @end

@@ -35,7 +35,7 @@
 #include "skia/ext/platform_canvas.h"
 #include "ui/gfx/codec/jpeg_codec.h"
 #include "ui/gfx/codec/png_codec.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 
 namespace nw {
 
@@ -43,8 +43,6 @@ namespace capture_page_helper_constants {
 
 const char kFormatValueJpeg[] = "jpeg";
 const char kFormatValuePng[] = "png";
-const char kMimeTypeJpeg[] = "image/jpeg";
-const char kMimeTypePng[] = "image/png";
 
 const int kDefaultQuality = 90;
 
@@ -90,13 +88,11 @@ void CapturePageHelper::StartCapturePage(const std::string& image_format_str) {
       gfx::Rect(),
       view->GetViewBounds().size(),
       base::Bind(&CapturePageHelper::CopyFromBackingStoreComplete,
-                 this));
+                 this), kN32_SkColorType);
 }
 
-void CapturePageHelper::CopyFromBackingStoreComplete(
-                                                     bool succeeded,
-                                                     const SkBitmap& bitmap) {
-  if (succeeded) {
+void CapturePageHelper::CopyFromBackingStoreComplete(const SkBitmap& bitmap, content::ReadbackResponse response) {
+  if (response == content::READBACK_SUCCESS) {
     // Get image from backing store.
     SendResultFromBitmap(bitmap);
     return;
@@ -110,7 +106,6 @@ void CapturePageHelper::SendResultFromBitmap(const SkBitmap& screen_capture) {
   std::vector<unsigned char> data;
   SkAutoLockPixels screen_capture_lock(screen_capture);
   bool encoded = false;
-  std::string mime_type;
   switch (image_format_) {
     case FORMAT_JPEG:
       encoded = gfx::JPEGCodec::Encode(
@@ -120,15 +115,12 @@ void CapturePageHelper::SendResultFromBitmap(const SkBitmap& screen_capture) {
           screen_capture.height(),
           static_cast<int>(screen_capture.rowBytes()),
           keys::kDefaultQuality,
-          &data);
-      mime_type = keys::kMimeTypeJpeg;
-      break;
+          &data);      break;
     case FORMAT_PNG:
       encoded = gfx::PNGCodec::EncodeBGRASkBitmap(
           screen_capture,
           true,  // Discard transparency.
           &data);
-      mime_type = keys::kMimeTypePng;
       break;
     default:
       NOTREACHED() << "Invalid image format.";
@@ -144,10 +136,8 @@ void CapturePageHelper::SendResultFromBitmap(const SkBitmap& screen_capture) {
       reinterpret_cast<const char*>(vector_as_array(&data)), data.size());
 
   base::Base64Encode(stream_as_string, &base64_result);
-  base64_result.insert(0, base::StringPrintf("data:%s;base64,",
-                                             mime_type.c_str()));
-
-  shell_->SendEvent("__nw_capturepagedone", base64_result);
+    
+  shell_->SendEvent("__nw_capturepagedone", base64_result );
 }
 
 void CapturePageHelper::OnSnapshot(const SkBitmap& bitmap) {
